@@ -48,7 +48,7 @@ from __future__ import print_function
 # -- find carla module ---------------------------------------------------------
 # ==============================================================================
 
-
+import csv
 import glob
 import os
 import sys
@@ -162,14 +162,24 @@ class World(object):
         self.recording_start = 0
 
     def restart(self):
+        # # Keep same camera config if the camera manager exists.
+        # cam_index = self.camera_manager.index if self.camera_manager is not None else 0
+        # cam_pos_index = self.camera_manager.transform_index if self.camera_manager is not None else 0
+        # # Get a random blueprint.
+        # blueprint = random.choice(self.world.get_blueprint_library().filter(self._actor_filter))
+        # blueprint.set_attribute('role_name', self.actor_role_name)
+        # if blueprint.has_attribute('color'):
+        #     color = random.choice(blueprint.get_attribute('color').recommended_values)
+        #     blueprint.set_attribute('color', color)
+        # # Spawn the player.
         # Keep same camera config if the camera manager exists.
         cam_index = self.camera_manager.index if self.camera_manager is not None else 0
         cam_pos_index = self.camera_manager.transform_index if self.camera_manager is not None else 0
         # Get a random blueprint.
-        blueprint = random.choice(self.world.get_blueprint_library().filter(self._actor_filter))
+        blueprint = self.world.get_blueprint_library().filter(self._actor_filter)[0]
         blueprint.set_attribute('role_name', self.actor_role_name)
         if blueprint.has_attribute('color'):
-            color = random.choice(blueprint.get_attribute('color').recommended_values)
+            color = blueprint.get_attribute('color').recommended_values[0]
             blueprint.set_attribute('color', color)
         # Spawn the player.
         if self.player is not None:
@@ -200,8 +210,8 @@ class World(object):
         self.hud.notification('Weather: %s' % preset[1])
         self.player.get_world().set_weather(preset[0])
 
-    def tick(self, clock):
-        self.hud.tick(self, clock)
+    def tick(self, clock, myprint = False, wtr = None):
+        self.hud.tick(self, clock, myprint, wtr)
 
     def render(self, display):
         self.camera_manager.render(display)
@@ -268,41 +278,41 @@ class KeyboardControl(object):
                     world.camera_manager.set_sensor(event.key - 1 - K_0)
                 elif event.key == K_r and not (pygame.key.get_mods() & KMOD_CTRL):
                     world.camera_manager.toggle_recording()
-                elif event.key == K_r and (pygame.key.get_mods() & KMOD_CTRL):
-                    if (world.recording_enabled):
-                        client.stop_recorder()
-                        world.recording_enabled = False
-                        world.hud.notification("Recorder is OFF")
-                    else:
-                        client.start_recorder("manual_recording.rec")
-                        world.recording_enabled = True
-                        world.hud.notification("Recorder is ON")
-                elif event.key == K_p and (pygame.key.get_mods() & KMOD_CTRL):
-                    # stop recorder
-                    client.stop_recorder()
-                    world.recording_enabled = False
-                    # work around to fix camera at start of replaying
-                    currentIndex = world.camera_manager.index
-                    world.destroy_sensors()
-                    # disable autopilot
-                    self._autopilot_enabled = False
-                    world.player.set_autopilot(self._autopilot_enabled)
-                    world.hud.notification("Replaying file 'manual_recording.rec'")
-                    # replayer
-                    client.replay_file("manual_recording.rec", world.recording_start, 0, 0)
-                    world.camera_manager.set_sensor(currentIndex)
-                elif event.key == K_MINUS and (pygame.key.get_mods() & KMOD_CTRL):
-                    if pygame.key.get_mods() & KMOD_SHIFT:
-                        world.recording_start -= 10
-                    else:
-                        world.recording_start -= 1
-                    world.hud.notification("Recording start time is %d" % (world.recording_start))
-                elif event.key == K_EQUALS and (pygame.key.get_mods() & KMOD_CTRL):
-                    if pygame.key.get_mods() & KMOD_SHIFT:
-                        world.recording_start += 10
-                    else:
-                        world.recording_start += 1
-                    world.hud.notification("Recording start time is %d" % (world.recording_start))
+                # elif event.key == K_r and (pygame.key.get_mods() & KMOD_CTRL):
+                #     if (world.recording_enabled):
+                #         client.stop_recorder()
+                #         world.recording_enabled = False
+                #         world.hud.notification("Recorder is OFF")
+                #     else:
+                #         client.start_recorder("manual_recording.rec")
+                #         world.recording_enabled = True
+                #         world.hud.notification("Recorder is ON")
+                # elif event.key == K_p and (pygame.key.get_mods() & KMOD_CTRL):
+                #     # stop recorder
+                #     client.stop_recorder()
+                #     world.recording_enabled = False
+                #     # work around to fix camera at start of replaying
+                #     currentIndex = world.camera_manager.index
+                #     world.destroy_sensors()
+                #     # disable autopilot
+                #     self._autopilot_enabled = False
+                #     world.player.set_autopilot(self._autopilot_enabled)
+                #     world.hud.notification("Replaying file 'manual_recording.rec'")
+                #     # replayer
+                #     client.replay_file("manual_recording.rec", world.recording_start, 0, 0)
+                #     world.camera_manager.set_sensor(currentIndex)
+                # elif event.key == K_MINUS and (pygame.key.get_mods() & KMOD_CTRL):
+                #     if pygame.key.get_mods() & KMOD_SHIFT:
+                #         world.recording_start -= 10
+                #     else:
+                #         world.recording_start -= 1
+                #     world.hud.notification("Recording start time is %d" % (world.recording_start))
+                # elif event.key == K_EQUALS and (pygame.key.get_mods() & KMOD_CTRL):
+                #     if pygame.key.get_mods() & KMOD_SHIFT:
+                #         world.recording_start += 10
+                #     else:
+                #         world.recording_start += 1
+                #     world.hud.notification("Recording start time is %d" % (world.recording_start))
                 if isinstance(self._control, carla.VehicleControl):
                     if event.key == K_q:
                         self._control.gear = 1 if self._control.reverse else -1
@@ -391,7 +401,7 @@ class HUD(object):
         self.frame_number = timestamp.frame_count
         self.simulation_time = timestamp.elapsed_seconds
 
-    def tick(self, world, clock):
+    def tick(self, world, clock, myprint = False, wtr = None):
         self._notifications.tick(world, clock)
         if not self._show_info:
             return
@@ -407,48 +417,99 @@ class HUD(object):
         max_col = max(1.0, max(collision))
         collision = [x / max_col for x in collision]
         vehicles = world.world.get_actors().filter('vehicle.*')
-        self._info_text = [
-            'Server:  % 16.0f FPS' % self.server_fps,
-            'Client:  % 16.0f FPS' % clock.get_fps(),
-            '',
-            'Vehicle: % 20s' % get_actor_display_name(world.player, truncate=20),
-            'Map:     % 20s' % world.map.name,
-            'Simulation time: % 12s' % datetime.timedelta(seconds=int(self.simulation_time)),
-            '',
-            'Speed:   % 15.0f km/h' % (3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2)),
-            u'Heading:% 16.0f\N{DEGREE SIGN} % 2s' % (t.rotation.yaw, heading),
-            'Location:% 20s' % ('(% 5.1f, % 5.1f)' % (t.location.x, t.location.y)),
-            'GNSS:% 24s' % ('(% 2.6f, % 3.6f)' % (world.gnss_sensor.lat, world.gnss_sensor.lon)),
-            'Height:  % 18.0f m' % t.location.z,
-            '']
-        if isinstance(c, carla.VehicleControl):
+        mykeys = pygame.key.get_pressed()
+        
+        if not myprint:
+            self._info_text = [
+                'Server:  % 16.0f FPS' % self.server_fps,
+                'Client:  % 16.0f FPS' % clock.get_fps(),
+                '',
+                'Vehicle: % 20s' % get_actor_display_name(world.player, truncate=20),
+                'Map:     % 20s' % world.map.name,
+                'Simulation time: % 5s' % datetime.timedelta(seconds=self.simulation_time),
+                '',
+                'Speed:   % 15.0f km/h' % (3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2)),
+                'Heading:% 16.0f\N{DEGREE SIGN} % 2s' % (t.rotation.yaw, heading),
+                'Location:% 20s' % ('(% 5.1f, % 5.1f)' % (t.location.x, t.location.y)),
+                'GNSS:% 24s' % ('(% 2.6f, % 3.6f)' % (world.gnss_sensor.lat, world.gnss_sensor.lon)),
+                'Height:  % 18.0f m' % t.location.z,
+                '']
+            if isinstance(c, carla.VehicleControl):
+                self._info_text += [
+                    ('Throttle:', c.throttle, 0.0, 1.0),
+                    ('Steer:', c.steer, -1.0, 1.0),
+                    ('Brake:', c.brake, 0.0, 1.0),
+                    ('Reverse:', c.reverse),
+                    ('Hand brake:', c.hand_brake),
+                    ('Manual:', c.manual_gear_shift),
+                    'Gear:        %s' % {-1: 'R', 0: 'N'}.get(c.gear, c.gear)]
+            elif isinstance(c, carla.WalkerControl):
+                self._info_text += [
+                    ('Speed:', c.speed, 0.0, 5.556),
+                    ('Jump:', c.jump)]
             self._info_text += [
-                ('Throttle:', c.throttle, 0.0, 1.0),
-                ('Steer:', c.steer, -1.0, 1.0),
-                ('Brake:', c.brake, 0.0, 1.0),
-                ('Reverse:', c.reverse),
-                ('Hand brake:', c.hand_brake),
-                ('Manual:', c.manual_gear_shift),
+                '',
+                'Collision:',
+                collision,
+                '',
+                'Number of vehicles: % 8d' % len(vehicles)]
+            if len(vehicles) > 1:
+                self._info_text += ['Nearby vehicles:']
+                distance = lambda l: math.sqrt((l.x - t.location.x)**2 + (l.y - t.location.y)**2 + (l.z - t.location.z)**2)
+                vehicles = [(distance(x.get_location()), x) for x in vehicles if x.id != world.player.id]
+                for d, vehicle in sorted(vehicles):
+                    if d > 200.0:
+                        break
+                    vehicle_type = get_actor_display_name(vehicle, truncate=22)
+                    self._info_text.append('% 4dm %s' % (d, vehicle_type))
+        else:
+            myinfo_text = [
+            '% 16.0f' % self.server_fps,
+            '% 16.0f' % clock.get_fps(),
+            '% 20s' % get_actor_display_name(world.player, truncate=20),
+            '% 20s' % world.map.name,
+            '% 7s' % datetime.timedelta(seconds=self.simulation_time),
+            '% 15.0f' % (3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2)),    #speed
+            '% 16.0f % 2s' % (t.rotation.yaw, heading),
+            '% 20s' % ('(% 5.1f, % 5.1f)' % (t.location.x, t.location.y,)),  #location 2d
+            '% 24s' % ('(% 2.6f, % 3.6f)' % (world.gnss_sensor.lat, world.gnss_sensor.lon)),    #gnss
+            '% 18.0f m' % t.location.z, #location- height
+            mykeys[K_UP] or mykeys[K_w], # checking
+            mykeys[K_DOWN] or mykeys[K_s],
+            mykeys[K_LEFT] or mykeys[K_a],
+            mykeys[K_RIGHT] or mykeys[K_d]
+            ]
+            if isinstance(c, carla.VehicleControl):
+                myinfo_text += [
+                c.throttle,
+                c.steer,
+                c.brake,
+                c.reverse,
+                c.hand_brake,
                 'Gear:        %s' % {-1: 'R', 0: 'N'}.get(c.gear, c.gear)]
-        elif isinstance(c, carla.WalkerControl):
-            self._info_text += [
-                ('Speed:', c.speed, 0.0, 5.556),
-                ('Jump:', c.jump)]
-        self._info_text += [
-            '',
-            'Collision:',
-            collision,
-            '',
-            'Number of vehicles: % 8d' % len(vehicles)]
-        if len(vehicles) > 1:
-            self._info_text += ['Nearby vehicles:']
-            distance = lambda l: math.sqrt((l.x - t.location.x)**2 + (l.y - t.location.y)**2 + (l.z - t.location.z)**2)
-            vehicles = [(distance(x.get_location()), x) for x in vehicles if x.id != world.player.id]
-            for d, vehicle in sorted(vehicles):
-                if d > 200.0:
-                    break
-                vehicle_type = get_actor_display_name(vehicle, truncate=22)
-                self._info_text.append('% 4dm %s' % (d, vehicle_type))
+            else:
+                myinfo_text += [
+                None,
+                None,
+                None,
+                None,
+                None,
+                None
+                ]
+            if isinstance(c, carla.WalkerControl):
+                myinfo_text += [
+                (c.speed, 0.0, 5.556),
+                (c.jump)]
+            else:
+                myinfo_text += [
+                None,
+                None
+                ]
+            myinfo_text += [
+                collision,
+                'Number of vehicles: % 8d' % len(vehicles)
+                ]
+            wtr.writerow(myinfo_text)
 
     def toggle_info(self):
         self._show_info = not self._show_info
@@ -773,11 +834,41 @@ def game_loop(args):
         controller = KeyboardControl(world, args.autopilot)
 
         clock = pygame.time.Clock()
+        pygame.time.set_timer(pygame.USEREVENT, 10)
+        wtr = csv.writer(open ('out.csv', 'w'), delimiter=',', lineterminator='\n')
+        title = [
+            "Server_FPS",
+            "Client_FPS",
+            "Vehicle Name",
+            "Map Name",
+            "Simulation Time",
+            "Heading (yaw, heading)",
+            "XY Coord on Map",
+            "Lat Long on Map",
+            "Z(height) Loc",
+            "Keys Up",
+            "Keys Down",
+            "Keys Left",
+            "Keys Right",
+            "Throttle 0 to 1",
+            "Steer 0 to 1",
+            "Brake 0 to 1",
+            "Reversed",
+            "Hand Brake",
+            "Gear",
+            "WalkerControl Speed",
+            "WalkerControl Jump",
+            "Collision History",
+            "# of Vehicles on Map"
+        ]
+        wtr.writerow(title)
         while True:
             clock.tick_busy_loop(60)
             if controller.parse_events(client, world, clock):
                 return
             world.tick(clock)
+            if pygame.event.get(pygame.USEREVENT): # check event queue contains PLAYSOUNDEVENT 
+                world.tick(clock, True, wtr)
             world.render(display)
             pygame.display.flip()
 

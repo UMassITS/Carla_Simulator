@@ -162,6 +162,8 @@ class World(object):
         self.recording_start = 0
 
     def restart(self):
+        self.player_max_speed = 0.189
+        self.player_max_speed_fast = 3.713
         # # Keep same camera config if the camera manager exists.
         # cam_index = self.camera_manager.index if self.camera_manager is not None else 0
         # cam_pos_index = self.camera_manager.transform_index if self.camera_manager is not None else 0
@@ -176,11 +178,24 @@ class World(object):
         cam_index = self.camera_manager.index if self.camera_manager is not None else 0
         cam_pos_index = self.camera_manager.transform_index if self.camera_manager is not None else 0
         # Get a random blueprint.
-        blueprint = self.world.get_blueprint_library().filter(self._actor_filter)[0]
+        blueprint = self.world.get_blueprint_library().filter(self._actor_filter)[2]
         blueprint.set_attribute('role_name', self.actor_role_name)
         if blueprint.has_attribute('color'):
             color = blueprint.get_attribute('color').recommended_values[0]
             blueprint.set_attribute('color', color)
+        if blueprint.has_attribute('driver_id'):
+            driver_id = blueprint.get_attribute('driver_id').recommended_values[0]
+            blueprint.set_attribute('driver_id', driver_id)
+        if blueprint.has_attribute('is_invincible'):
+            blueprint.set_attribute('is_invincible', 'true')
+        # set the max speed
+        if blueprint.has_attribute('speed'):
+            # self.player_max_speed = float(blueprint.get_attribute('speed').recommended_values[1])
+            # self.player_max_speed_fast = float(blueprint.get_attribute('speed').recommended_values[2])
+            self.player_max_speed = 0.1
+            self.player_max_speed_fast = 0.1
+        else:
+            print("No recommended values for 'speed' attribute")
         # Spawn the player.
         if self.player is not None:
             spawn_point = self.player.get_transform()
@@ -190,6 +205,10 @@ class World(object):
             self.destroy()
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
         while self.player is None:
+            if not self.map.get_spawn_points():
+                print('There are no spawn points available in your map/town.')
+                print('Please add some Vehicle Spawn Point to your UE4 scene.')
+                sys.exit(1)
             spawn_points = self.map.get_spawn_points()
             spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
@@ -380,12 +399,12 @@ class KeyboardControl(object):
 class HUD(object):
     def __init__(self, width, height):
         self.dim = (width, height)
-        font = pygame.font.Font(pygame.font.get_default_font(), 20)
+        font = pygame.font.Font(pygame.font.get_default_font(), 40)
         fonts = [x for x in pygame.font.get_fonts() if 'mono' in x]
         default_font = 'ubuntumono'
         mono = default_font if default_font in fonts else fonts[0]
         mono = pygame.font.match_font(mono)
-        self._font_mono = pygame.font.Font(mono, 14)
+        self._font_mono = pygame.font.Font(mono, 40)# 14
         self._notifications = FadingText(font, (width, 40), (0, height - 40))
         self.help = HelpText(pygame.font.Font(mono, 24), width, height)
         self.server_fps = 0
@@ -522,11 +541,11 @@ class HUD(object):
 
     def render(self, display):
         if self._show_info:
-            info_surface = pygame.Surface((220, self.dim[1]))
+            info_surface = pygame.Surface((0, self.dim[1]))
             info_surface.set_alpha(100)
             display.blit(info_surface, (0, 0))
-            v_offset = 4
-            bar_h_offset = 100
+            v_offset = 8
+            bar_h_offset = 220
             bar_width = 106
             for item in self._info_text:
                 if v_offset + 18 > self.dim[1]:
@@ -554,7 +573,7 @@ class HUD(object):
                 if item:  # At this point has to be a str.
                     surface = self._font_mono.render(item, True, (255, 255, 255))
                     display.blit(surface, (8, v_offset))
-                v_offset += 18
+                v_offset += 48
         self._notifications.render(display)
         self.help.render(display)
 
@@ -675,13 +694,13 @@ class LaneInvasionSensor(object):
 
     @staticmethod
     def _on_invasion(weak_self, event):
-        return
-        # self = weak_self()
-        # if not self:
-        #     return
-        # lane_types = set(x.type for x in event.crossed_lane_markings)
-        # text = ['%r' % str(x).split()[-1] for x in lane_types]
-        # self.hud.notification('Crossed line %s' % ' and '.join(text))
+        # return
+        self = weak_self()
+        if not self:
+            return
+        lane_types = set(x.type for x in event.crossed_lane_markings)
+        text = ['%r' % str(x).split()[-1] for x in lane_types]
+        self.hud.notification('Crossed line %s' % ' and '.join(text))
 
 # ==============================================================================
 # -- GnssSensor --------------------------------------------------------
@@ -724,6 +743,7 @@ class CameraManager(object):
         self.hud = hud
         self.recording = False
         self._camera_transforms = [
+            carla.Transform(carla.Location(x=-0.25,y=-0.4, z=1.2), carla.Rotation()),
             carla.Transform(carla.Location(x=-5.5, z=2.8), carla.Rotation(pitch=-15)),
             carla.Transform(carla.Location(x=1.6, z=1.7))]
         self.transform_index = 1
@@ -828,7 +848,11 @@ def game_loop(args):
 
         display = pygame.display.set_mode(
             (args.width, args.height),
-            pygame.HWSURFACE | pygame.DOUBLEBUF)
+            pygame.RESIZABLE | pygame.HWSURFACE | pygame.DOUBLEBUF)
+        display.fill(pygame.Color('#FF9050'))
+        # display = pygame.display.set_mode(
+        #     (0,0),
+        #     pygame.RESIZABLE | pygame.HWSURFACE | pygame.DOUBLEBUF)
 
         hud = HUD(args.width, args.height)
         world = World(client.get_world(), hud, args.filter, args.rolename)
@@ -915,7 +939,7 @@ def main():
     argparser.add_argument(
         '--res',
         metavar='WIDTHxHEIGHT',
-        default='1280x720',
+        default='2600x1900',
         help='window resolution (default: 1280x720)')
     argparser.add_argument(
         '--filter',
